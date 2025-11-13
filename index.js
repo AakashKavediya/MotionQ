@@ -34,7 +34,7 @@ app.post("/signup", async (req, res) => {
     }
 
     // 🔐 BCRYPT HASHING
-    const saltRounds = 10;
+    const saltRounds = 4;
     const salt = await bcrypt.genSalt(saltRounds);
     const hashedPassword = await bcrypt.hash(password, salt);
 
