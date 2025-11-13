@@ -1,0 +1,101 @@
+const express = require("express");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const Connection = require("./connection/connection");
+const User = require("./schema/userSchema");
+
+
+const app = express();
+app.use(express.json());
+app.use(cors({ origin: "*" }));
+// Connect to DB; log connection errors if they occur
+Connection().catch((err) => console.error("DB connection error:", err));
+
+// Minimal async handler wrapper so async route errors go to Express error middleware
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// SIGNUP ROUTE
+app.post("/signup", async (req, res) => {
+  try {
+    const { name, email, password, confirmPassword } = req.body;
+
+    if (!name || !email || !password || !confirmPassword) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: "Passwords do not match" });
+    }
+
+    // Check existing user
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+
+    // 🔐 BCRYPT HASHING
+    const saltRounds = 10;
+    const salt = await bcrypt.genSalt(saltRounds);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create new user
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword, // store hashed password
+    });
+
+    await newUser.save();
+
+    res.status(201).json({ message: "User created successfully" });
+  } catch (err) {
+    console.error("Signup Error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+
+app.post(
+  "/login",
+  asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+
+    // Basic validation
+    if (!email || !password) {
+      return res.status(400).json({ error: "Please provide email and password" });
+    }
+
+    // Ensure DB connection if not already connected
+    // await connectDB(); // uncomment only if needed
+
+    // Find user by email using the model (not an instance)
+    // Use the `User` model (login schema file may not exist). If you have a separate
+    // login model, replace `User` with that model name and ensure the file exists.
+    const existingUser = await User.findOne({ email }).exec();
+
+    // Avoid leaking which part is wrong; generic message is better for security
+    if (!existingUser) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // Compare submitted password with stored (hashed) password
+    const isMatch = await bcrypt.compare(password, existingUser.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // Login successful — return useful info (avoid returning password)
+    return res.status(200).json({
+      message: "Successfully logged in",
+      userId: existingUser._id.toString(),
+      // optionally include JWT token here instead of userId
+    });
+  })
+);
+
+
+const PORT = 8000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
